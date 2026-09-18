@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Elsa's Frozen Defense</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0d1b2a;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            max-width: 1200px;
+            max-height: 700px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+            overflow: hidden;
+            background: #0d1b2a;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        /* Custom UI Overlays */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(13, 27, 42, 0.85);
+            backdrop-filter: blur(8px);
+            color: #ffffff;
+            transition: opacity 0.3s ease;
+            z-index: 10;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        h1 {
+            font-size: 3rem;
+            color: #e0f7fa;
+            text-shadow: 0 0 15px #00e5ff, 0 0 30px #00b0ff;
+            margin-bottom: 1rem;
+            text-align: center;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        p {
+            font-size: 1.2rem;
+            color: #b2ebf2;
+            margin-bottom: 2rem;
+            text-align: center;
+            max-width: 80%;
+            line-height: 1.5;
+        }
+
+        .btn {
+            padding: 14px 36px;
+            font-size: 1.25rem;
+            font-weight: bold;
+            color: #0d1b2a;
+            background: linear-gradient(135deg, #e0f7fa 0%, #80deea 50%, #00e5ff 100%);
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.6), 0 4px 10px rgba(0,0,0,0.3);
+            transition: transform 0.2s, box-shadow 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn:hover {
+            transform: scale(1.08);
+            box-shadow: 0 0 30px rgba(0, 229, 255, 0.9), 0 6px 15px rgba(0,0,0,0.4);
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        #ui-bar {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+            z-index: 5;
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: #ffffff;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8), 0 0 10px #00e5ff;
+        }
+
+        .score-box {
+            background: rgba(13, 27, 42, 0.6);
+            padding: 8px 18px;
+            border-radius: 20px;
+            border: 1px solid rgba(0, 229, 255, 0.3);
+        }
+
+        /* Responsive UI text */
+        @media (max-width: 600px) {
+            h1 { font-size: 2rem; }
+            p { font-size: 1rem; }
+            .btn { padding: 10px 24px; font-size: 1rem; }
+            #ui-bar { font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Top UI Bar -->
+    <div id="ui-bar">
+        <div class="score-box">SCORE: <span id="score">0</span></div>
+        <div class="score-box">HIGH: <span id="highscore">0</span></div>
+    </div>
+
+    <!-- Start Overlay -->
+    <div id="start-overlay" class="overlay">
+        <h1>Elsa's Frozen Defense</h1>
+        <p>Defend the kingdom from invading castle soldiers! Tap or click anywhere on the screen to blast incoming soldiers with ice magic.</p>
+        <button id="start-btn" class="btn">Start Game</button>
+    </div>
+
+    <!-- Game Over Overlay -->
+    <div id="game-over-overlay" class="overlay hidden">
+        <h1 style="color: #ff5252; text-shadow: 0 0 15px #ff1744, 0 0 30px #d50000;">Game Over</h1>
+        <p id="final-score">Your Score: 0</p>
+        <button id="restart-btn" class="btn">Play Again</button>
+    </div>
+</div>
+
+<script>
+// Synthesizer Audio System using Web Audio API
+class SoundFX {
+    constructor() {
+        this.ctx = null;
+    }
+
+    init() {
+        if (!this.ctx) {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioContext();
+        }
+    }
+
+    playShoot() {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        
+        // Oscillator for laser/blast swoop
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, now);
+        osc.frequency.exponentialRampToValueAtTime(200, now + 0.25);
+
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.25);
+    }
+
+    playHit() {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+
+        // Ice freeze effect sound (high crystal tone + noise)
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(1200, now);
+        osc.frequency.exponentialRampToValueAtTime(400, now + 0.3);
+
+        gain.gain.setValueAtTime(0.4, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.3);
+    }
+
+    playGameOver() {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(300, now);
+        osc.frequency.linearRampToValueAtTime(100, now + 0.8);
+
+        gain.gain.setValueAtTime(0.5, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.8);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.8);
+    }
+}
+
+const sfx = new SoundFX();
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const startOverlay = document.getElementById('start-overlay');
+const gameOverOverlay = document.getElementById('game-over-overlay');
+const startBtn = document.getElementById('start-btn');
+const restartBtn = document.getElementById('restart-btn');
+const scoreEl = document.getElementById('score');
+const highscoreEl = document.getElementById('highscore');
+const finalScoreEl = document.getElementById('final-score');
+
+// Game State
+let gameState = 'START'; // 'START', 'PLAYING', 'GAMEOVER'
+let score = 0;
+let highScore = localStorage.getItem('elsa_highscore') || 0;
+highscoreEl.textContent = highScore;
+
+let scale = 1;
+let width = 800;
+let height = 500;
+
+// Time & Spawning logic
+let lastTime = 0;
+let spawnTimer = 0;
+const SPAWN_INTERVAL = 2800; // milliseconds
+let soldierStyleCycle = 0;
+
+// Game Entities Arrays
+let snowflakes = [];
+let particles = [];
+let projectiles = [];
+let soldiers = [];
+let elsaSparkles = [];
+
+// Initialize falling snowflakes for dynamic environment
+function initSnow() {
+    snowflakes = [];
+    for (let i = 0; i < 80; i++) {
+        snowflakes.push({
+            x: Math.random() * width,
+            y: Math.random() * height,
+            radius: Math.random() * 3 + 1,
+            speedY: Math.random() * 1 + 0.5,
+            speedX: Math.random() * 0.5 - 0.25,
+            opacity: Math.random() * 0.7 + 0.3
+        });
+    }
+}
+
+function updateSnow() {
+    snowflakes.forEach(s => {
+        s.y += s.speedY;
+        s.x += s.speedX;
+        if (s.y > height) {
+            s.y = -10;
+            s.x = Math.random() * width;
+        }
+    });
+}
+
+function drawSnow() {
+    ctx.fillStyle = '#ffffff';
+    snowflakes.forEach(s => {
+        ctx.save();
+        ctx.globalAlpha = s.opacity;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    });
+}
+
+function drawBackground() {
+    // Sky Gradient
+    const skyGradient = ctx.createLinearGradient(0, 0, 0, height);
+    skyGradient.addColorStop(0, '#09101d');
+    skyGradient.addColorStop(0.6, '#1b2a4a');
+    skyGradient.addColorStop(1, '#2a4365');
+    ctx.fillStyle = skyGradient;
+    ctx.fillRect(0, 0, width, height);
+
+    // Moon / Aura
+    const moonGlow = ctx.createRadialGradient(width * 0.75, height * 0.25, 10, width * 0.75, height * 0.25, 180);
+    moonGlow.addColorStop(0, 'rgba(224, 247, 250, 0.4)');
+    moonGlow.addColorStop(0.5, 'rgba(0, 229, 255, 0.1)');
+    moonGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = moonGlow;
+    ctx.beginPath();
+    ctx.arc(width * 0.75, height * 0.25, 180, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Distant Pines Layer 1
+    ctx.fillStyle = '#112233';
+    drawTreeLine(height * 0.72, 60, 110);
+
+    // Distant Pines Layer 2
+    ctx.fillStyle = '#1c3144';
+    drawTreeLine(height * 0.76, 80, 140);
+
+    // Snowy Ground
+    const groundGradient = ctx.createLinearGradient(0, height * 0.75, 0, height);
+    groundGradient.addColorStop(0, '#d0f4de');
+    groundGradient.addColorStop(0.1, '#a9def9');
+    groundGradient.addColorStop(1, '#1d3557');
+    ctx.fillStyle = groundGradient;
+    ctx.beginPath();
+    ctx.moveTo(0, height * 0.78);
+    ctx.quadraticCurveTo(width * 0.5, height * 0.75, width, height * 0.8);
+    ctx.lineTo(width, height);
+    ctx.lineTo(0, height);
+    ctx.closePath();
+    ctx.fill();
+}
+
+function drawTreeLine(baseline, minWidth, minHeight) {
+    let currentX = -20;
+    while (currentX < width + 40) {
+        let treeW = minWidth + Math.sin(currentX) * 20;
+        let treeH = minHeight + Math.cos(currentX) * 30;
+        
+        ctx.beginPath();
+        ctx.moveTo(currentX, baseline);
+        ctx.lineTo(currentX + treeW / 2, baseline - treeH);
+        ctx.lineTo(currentX + treeW, baseline);
+        ctx.closePath();
+        ctx.fill();
+
+        // Snow on trees
+        ctx.fillStyle = 'rgba(240, 248, 255, 0.25)';
+        ctx.beginPath();
+        ctx.moveTo(currentX + treeW * 0.2, baseline - treeH * 0.4);
+        ctx.lineTo(currentX + treeW / 2, baseline - treeH);
+        ctx.lineTo(currentX + treeW * 0.8, baseline - treeH * 0.4);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = (baseline > height * 0.74) ? '#1c3144' : '#112233';
+        currentX += treeW * 0.6;
+    }
+}
+
+class Elsa {
+    constructor() {
+        this.x = 90;
+        this.y = height * 0.76;
+        this.handX = this.x + 28;
+        this.handY = this.y - 42;
+        this.animTime = 0;
+    }
+
+    update(dt) {
+        this.animTime += dt * 0.003;
+        
+        // Ambient magic sparkles from hands
+        if (Math.random() < 0.4) {
+            elsaSparkles.push({
+                x: this.handX + (Math.random() * 12 - 6),
+                y: this.handY + (Math.random() * 12 - 6),
+                vx: Math.random() * 0.8 + 0.2,
+                vy: Math.random() * -0.6 - 0.2,
+                radius: Math.random() * 2.5 + 1,
+                alpha: 1,
+                color: Math.random() > 0.5 ? '#e0f7fa' : '#00e5ff'
+            });
+        }
+    }
+
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+
+        const floatOffset = Math.sin(this.animTime * 2) * 2;
+
+        // Magical Glow behind Elsa
+        const aura = ctx.createRadialGradient(0, -35, 10, 0, -35, 55);
+        aura.addColorStop(0, 'rgba(0, 229, 255, 0.4)');
+        aura.addColorStop(1, 'rgba(0, 229, 255, 0)');
+        ctx.fillStyle = aura;
+        ctx.beginPath();
+        ctx.arc(0, -35, 55, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 1. Cape / Train
+        ctx.fillStyle = 'rgba(128, 222, 234, 0.5)';
+        ctx.beginPath();
+        ctx.moveTo(-10, -50 + floatOffset);
+        ctx.quadraticCurveTo(-40, -20, -35, 0);
+        ctx.lineTo(-5, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        // 2. Dress / Gown
+        const dressGrad = ctx.createLinearGradient(0, -50, 0, 0);
+        dressGrad.addColorStop(0, '#80deea');
+        dressGrad.addColorStop(0.5, '#00b0ff');
+        dressGrad.addColorStop(1, '#0077c2');
+        ctx.fillStyle = dressGrad;
+        ctx.beginPath();
+        ctx.moveTo(-12, -48 + floatOffset);
+        ctx.lineTo(12, -48 + floatOffset);
+        ctx.lineTo(20, 0);
+        ctx.lineTo(-20, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        // 3. Head & Face
+        ctx.fillStyle = '#ffe0bd';
+        ctx.beginPath();
+        ctx.arc(0, -62 + floatOffset, 12, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 4. Hair (Signature Platinum Blonde Braid)
+        ctx.fillStyle = '#fff9c4';
+        // Main hair mass
+        ctx.beginPath();
+        ctx.arc(-1, -66 + floatOffset, 14, 0, Math.PI * 2);
+        ctx.fill();
+        // Braid over shoulder
+        ctx.beginPath();
+        ctx.moveTo(-6, -60 + floatOffset);
+        ctx.quadraticCurveTo(-18, -45, -12, -30 + floatOffset);
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = '#fff9c4';
+        ctx.stroke();
+
+        // 5. Raised Hands (Casting Stance)
+        ctx.strokeStyle = '#ffe0bd';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(5, -48 + floatOffset);
+        ctx.lineTo(28, -42 + floatOffset); // Right Arm pointing forward
+        ctx.stroke();
+
+        ctx.restore();
+    }
+}
+
+const SOLDIER_STYLES = [
+    { name: 'blue', primary: '#1e88e5', secondary: '#0d47a1', plume: '#42a5f5' },
+    { name: 'red', primary: '#e53935', secondary: '#b71c1c', plume: '#ff5252' },
+    { name: 'yellow', primary: '#fdd835', secondary: '#f57f17', plume: '#ffee58' }
+];
+
+class Soldier {
+    constructor(style) {
+        this.x = width + 40;
+        this.y = height * 0.76;
+        this.speed = 0.8 + Math.random() * 0.3;
+        this.style = style;
+        this.isDying = false;
+        this.opacity = 1;
+        this.frozenProgress = 0; // 0 = normal, 1 = ice covered
+        this.walkAnim = 0;
+        this.radius = 25; // Hitbox radius
+    }
+
+    update(dt) {
+        if (!this.isDying) {
+            this.x -= this.speed;
+            this.walkAnim += dt * 0.008;
+        } else {
+            // Fade out when frozen/defeated
+            this.opacity -= dt * 0.002;
+            this.frozenProgress = Math.min(1, this.frozenProgress + dt * 0.005);
+        }
+    }
+
+    draw() {
+        if (this.opacity <= 0) return;
+
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, this.opacity);
+        ctx.translate(this.x, this.y);
+
+        const legWobble = Math.sin(this.walkAnim) * 8;
+
+        // Frozen Tint Overlay Blend
+        if (this.frozenProgress > 0) {
+            ctx.shadowColor = '#00e5ff';
+            ctx.shadowBlur = 15 * this.frozenProgress;
+        }
+
+        // 1. Legs
+        ctx.strokeStyle = '#37474f';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(-5, -15);
+        ctx.lineTo(-10 + legWobble, 0);
+        ctx.moveTo(5, -15);
+        ctx.lineTo(10 - legWobble, 0);
+        ctx.stroke();
+
+        // 2. Body / Armor
+        ctx.fillStyle = this.style.secondary;
+        ctx.fillRect(-14, -45, 28, 30);
+
+        ctx.fillStyle = this.style.primary;
+        ctx.fillRect(-10, -42, 20, 24);
+
+        // 3. Head & Helmet
+        ctx.fillStyle = '#78909c';
+        ctx.beginPath();
+        ctx.arc(0, -52, 11, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Helmet Plume
+        ctx.fillStyle = this.style.plume;
+        ctx.beginPath();
+        ctx.arc(0, -63, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 4. Shield (Facing Left)
+        ctx.fillStyle = this.style.primary;
+        ctx.strokeStyle = '#cfd8dc';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(-12, -32, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // 5. Spear / Weapon
+        ctx.strokeStyle = '#8d6e63';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(10, -10);
+        ctx.lineTo(-30, -35);
+        ctx.stroke();
+
+        // Spearhead
+        ctx.fillStyle = '#b0bec5';
+        ctx.beginPath();
+        ctx.moveTo(-30, -35);
+        ctx.lineTo(-38, -37);
+        ctx.lineTo(-32, -42);
+        ctx.closePath();
+        ctx.fill();
+
+        // Ice Covering Effect when hit
+        if (this.frozenProgress > 0) {
+            ctx.fillStyle = `rgba(128, 222, 234, ${0.7 * this.frozenProgress})`;
+            ctx.beginPath();
+            ctx.arc(0, -30, 32, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Frost Spikes
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 5; i++) {
+                let angle = (i * Math.PI) / 2.5;
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(angle) * 15, -30 + Math.sin(angle) * 15);
+                ctx.lineTo(Math.cos(angle) * 35, -30 + Math.sin(angle) * 35);
+                ctx.stroke();
+            }
+        }
+
+        ctx.restore();
+    }
+}
+
+class IcyBlast {
+    constructor(startX, startY, targetX, targetY) {
+        this.x = startX;
+        this.y = startY;
+        
+        // Calculate Direction Angle
+        const dx = targetX - startX;
+        const dy = targetY - startY;
+        const angle = Math.atan2(dy, dx);
+
+        this.speed = 11;
+        this.vx = Math.cos(angle) * this.speed;
+        this.vy = Math.sin(angle) * this.speed;
+        this.radius = 8;
+        this.active = true;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Tail Particles
+        if (Math.random() < 0.8) {
+            particles.push({
+                x: this.x - this.vx * 0.5,
+                y: this.y - this.vy * 0.5,
+                vx: (Math.random() - 0.5) * 1.5,
+                vy: (Math.random() - 0.5) * 1.5,
+                radius: Math.random() * 4 + 1,
+                alpha: 1,
+                color: Math.random() > 0.3 ? '#80deea' : '#ffffff'
+            });
+        }
+
+        // Out of Bounds check
+        if (this.x > width + 50 || this.x < -20 || this.y < -20 || this.y > height + 20) {
+            this.active = false;
+        }
+    }
+
+    draw() {
+        ctx.save();
+        ctx.shadowColor = '#00e5ff';
+        ctx.shadowBlur = 15;
+
+        // Core Glowing Orb
+        const grad = ctx.createRadialGradient(this.x, this.y, 2, this.x, this.y, this.radius);
+        grad.addColorStop(0, '#ffffff');
+        grad.addColorStop(0.5, '#80deea');
+        grad.addColorStop(1, '#00e5ff');
+
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+}
+
+function createIceBurst(x, y) {
+    for (let i = 0; i < 25; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 5 + 2;
+        particles.push({
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            radius: Math.random() * 4 + 2,
+            alpha: 1,
+            color: ['#ffffff', '#80deea', '#00e5ff', '#b2ebf2'][Math.floor(Math.random() * 4)]
+        });
+    }
+}
+
+function updateParticles(dt) {
+    // Elsa ambient hand sparkles
+    elsaSparkles.forEach((p, index) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= 0.03;
+        if (p.alpha <= 0) elsaSparkles.splice(index, 1);
+    });
+
+    // Blast and Hit Burst Particles
+    particles.forEach((p, index) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= dt * 0.002;
+        if (p.alpha <= 0) particles.splice(index, 1);
+    });
+}
+
+function drawParticles() {
+    // Draw Hand Sparkles
+    elsaSparkles.forEach(p => {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, p.alpha);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    });
+
+    // Draw Burst Particles
+    particles.forEach(p => {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, p.alpha);
+        ctx.fillStyle = p.color;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    });
+}
+
+const elsa = new Elsa();
+
+function spawnSoldier() {
+    const style = SOLDIER_STYLES[soldierStyleCycle % SOLDIER_STYLES.length];
+    soldierStyleCycle++;
+    soldiers.push(new Soldier(style));
+}
+
+function shootBlast(targetX, targetY) {
+    sfx.playShoot();
+    projectiles.push(new IcyBlast(elsa.handX, elsa.handY, targetX, targetY));
+}
+
+function handleInput(e) {
+    if (gameState !== 'PLAYING') return;
+
+    sfx.init(); // Initialize audio context on first user touch/click
+
+    const rect = canvas.getBoundingClientRect();
+    const clickX = (e.clientX || (e.touches && e.touches[0].clientX)) - rect.left;
+    const clickY = (e.clientY || (e.touches && e.touches[0].clientY)) - rect.top;
+
+    shootBlast(clickX / scale, clickY / scale);
+}
+
+// Window Event Listeners
+window.addEventListener('mousedown', handleInput);
+window.addEventListener('touchstart', (e) => {
+    handleInput(e);
+}, { passive: true });
+
+function resizeCanvas() {
+    const container = document.getElementById('game-container');
+    const rect = container.getBoundingClientRect();
+    
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+
+    scale = rect.width / width;
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+}
+
+window.addEventListener('resize', resizeCanvas);
+
+function resetGame() {
+    score = 0;
+    scoreEl.textContent = score;
+    soldiers = [];
+    projectiles = [];
+    particles = [];
+    spawnTimer = 0;
+    soldierStyleCycle = 0;
+    gameState = 'PLAYING';
+
+    spawnSoldier(); // Immediately spawn first enemy
+}
+
+function triggerGameOver() {
+    gameState = 'GAMEOVER';
+    sfx.playGameOver();
+
+    if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('elsa_highscore', highScore);
+        highscoreEl.textContent = highScore;
+    }
+
+    finalScoreEl.textContent = `Defeated Soldiers: ${score}`;
+    gameOverOverlay.classList.remove('hidden');
+}
+
+function update(dt) {
+    if (gameState !== 'PLAYING') return;
+
+    // Spawning Soldiers periodically
+    spawnTimer += dt;
+    if (spawnTimer >= SPAWN_INTERVAL) {
+        spawnSoldier();
+        spawnTimer = 0;
+    }
+
+    elsa.update(dt);
+    updateSnow();
+    updateParticles(dt);
+
+    // Update Projectiles
+    projectiles.forEach((p, pIdx) => {
+        p.update();
+
+        // Collision with Soldiers
+        soldiers.forEach(soldier => {
+            if (!soldier.isDying && p.active) {
+                // Approximate distance collision check
+                const dx = p.x - soldier.x;
+                const dy = p.y - (soldier.y - 30);
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < soldier.radius + p.radius) {
+                    p.active = false;
+                    soldier.isDying = true;
+                    sfx.playHit();
+                    createIceBurst(p.x, p.y);
+
+                    score += 1;
+                    scoreEl.textContent = score;
+                }
+            }
+        });
+
+        if (!p.active) projectiles.splice(pIdx, 1);
+    });
+
+    // Update Soldiers & Check Lose Condition
+    soldiers.forEach((soldier, index) => {
+        soldier.update(dt);
+
+        // Check if active soldier reaches Elsa
+        if (!soldier.isDying && soldier.x <= elsa.x + 35) {
+            triggerGameOver();
+        }
+
+        // Clean up completely faded soldiers
+        if (soldier.opacity <= 0) {
+            soldiers.splice(index, 1);
+        }
+    });
+}
+
+function render() {
+    ctx.clearRect(0, 0, width, height);
+
+    drawBackground();
+    drawSnow();
+
+    elsa.draw();
+
+    soldiers.forEach(s => s.draw());
+    projectiles.forEach(p => p.draw());
+    drawParticles();
+}
+
+function gameLoop(timestamp) {
+    if (!lastTime) lastTime = timestamp;
+    const dt = timestamp - lastTime;
+    lastTime = timestamp;
+
+    update(dt);
+    render();
+
+    requestAnimationFrame(gameLoop);
+}
+
+// UI Controls
+startBtn.addEventListener('click', () => {
+    sfx.init();
+    startOverlay.classList.add('hidden');
+    resetGame();
+});
+
+restartBtn.addEventListener('click', () => {
+    sfx.init();
+    gameOverOverlay.classList.add('hidden');
+    resetGame();
+});
+
+// Start initialization
+initSnow();
+resizeCanvas();
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
